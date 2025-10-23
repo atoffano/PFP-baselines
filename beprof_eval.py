@@ -87,10 +87,14 @@ def fmax(go, targets, scores, idx_goid):
             ru_values.append(float(ru))
 
             icp, icr = correct_ic / cut_ic, correct_ic / targets_ic
-            icp, icr = np.average(icp[np.invert(np.isnan(icp))]), np.average(icr)
+            icp, icr = np.average(icp[np.invert(np.isnan(icp))]), np.average(
+                icr[np.invert(np.isnan(icr))]
+            )
 
             dpp, dpr = correct_dp / cut_dp, correct_dp / targets_dp
-            dpp, dpr = np.average(dpp[np.invert(np.isnan(dpp))]), np.average(dpr)
+            dpp, dpr = np.average(dpp[np.invert(np.isnan(dpp))]), np.average(
+                dpr[np.invert(np.isnan(dpr))]
+            )
 
         if np.isnan(p):
             precisions.append(0.0)

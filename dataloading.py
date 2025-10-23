@@ -111,7 +111,6 @@ def load_data(
                 sep="\t",
             )
         else:
-            # Fix train proteins' annotations to 2024 SwissProt version
             annotations_2024_01 = pd.read_csv(
                 f"./data/swissprot/2024_01/swissprot_2024_01_{aspect}_annotations.tsv",
                 sep="\t",

@@ -50,12 +50,18 @@ def evaluate(logger, output_dir, dataset, aspect, k_values):
             logger.error(f"Ground Truth TSV file {gt_tsv} does not exist.")
             raise FileNotFoundError(f"Ground Truth TSV file {gt_tsv} does not exist.")
 
+    # Load GT protein IDs so we can fill in empty entries for unaligned proteins
+    with open(gt_pkl, "rb") as f:
+        gt_data = pickle.load(f)
+    all_test_proteins = set(gt_data.keys())
+    logger.info(f"{len(all_test_proteins)} test proteins loaded from ground truth pkl")
+
     # Evaluate NaiveBaseline predictions
     logger.info(f"Evaluating NaiveBaseline predictions")
     pred_file = f"{output_dir}/predictions/NaiveBaseline/predictions.tsv"
     pred_pkl = f"{output_dir}/predictions/NaiveBaseline/predictions.pkl"
     if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect)
+        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
         with open(pred_pkl, "wb") as f:
             pickle.dump(pred_dict, f)
 
@@ -76,7 +82,7 @@ def evaluate(logger, output_dir, dataset, aspect, k_values):
     pred_file = f"{output_dir}/predictions/IDScore/predictions.tsv"
     pred_pkl = f"{output_dir}/predictions/IDScore/predictions.pkl"
     if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect)
+        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
         with open(pred_pkl, "wb") as f:
             pickle.dump(pred_dict, f)
 
@@ -96,7 +102,7 @@ def evaluate(logger, output_dir, dataset, aspect, k_values):
     pred_file = f"{output_dir}/predictions/AlignmentScore/predictions.tsv"
     pred_pkl = f"{output_dir}/predictions/AlignmentScore/predictions.pkl"
     if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect)
+        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
         with open(pred_pkl, "wb") as f:
             pickle.dump(pred_dict, f)
         run_beprof_evaluation(
@@ -116,7 +122,7 @@ def evaluate(logger, output_dir, dataset, aspect, k_values):
         pred_file = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.tsv"
         pred_pkl = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.pkl"
         if os.path.exists(pred_file):
-            pred_dict = convert_predictions(pred_file, aspect)
+            pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
             with open(pred_pkl, "wb") as f:
                 pickle.dump(pred_dict, f)
 
@@ -223,10 +229,23 @@ def gt_convert(gt_tsv):
     print(f"Saved pickle file: {gt_pkl}")
 
 
-def convert_predictions(pred_file, aspect):
+def convert_predictions(pred_file, aspect, all_test_proteins=None):
     """
-    Converts a TSV prediction file with columns: target_ID, term_ID
-    into a dictionary where each protein gets a 'bp' dictionary of GO term predictions.
+    Converts a TSV prediction file with columns: target_ID, term_ID, score
+    into a dictionary where each protein maps to a {subontology: {term: score}} dict.
+
+    Proteins that received no predictions are included with an empty prediction dict
+    so that beprof_eval penalises them via recall rather than silently ignoring them.
+
+    Parameters
+    ----------
+    pred_file : str
+        Path to the TSV prediction file.
+    aspect : str
+        Ontology aspect string, e.g. 'BPO', 'CCO', 'MFO'.
+    all_test_proteins : set or None
+        Complete set of test protein IDs. When provided, every protein absent from
+        pred_file is inserted with an empty prediction dict.
     """
     subontology = aspect[:2].lower()
     df = pd.read_csv(pred_file, sep="\t")
@@ -235,14 +254,23 @@ def convert_predictions(pred_file, aspect):
     df = df.explode("term_ID")
     pred_dict = {}
     for prot, group in tqdm.tqdm(df.groupby("target_ID")):
-        # if subontology == "all":
-        #     for sub in ["cc", "mf", "bp"]:
-        #         pred_dict[prot] = {
-        #             f"{sub}": dict(zip(group["term_ID"], [1] * len(group["term_ID"])))
-        #         }
         pred_dict[prot] = {
             f"{subontology}": dict(zip(group["term_ID"], group["score"]))
         }
+
+    # Ensure every test protein has an entry so beprof_eval counts absences as
+    # zero-precision / zero-recall rather than excluding them from the evaluation.
+    if all_test_proteins is not None:
+        n_missing = 0
+        for prot in all_test_proteins:
+            if prot not in pred_dict:
+                pred_dict[prot] = {f"{subontology}": {}}
+                n_missing += 1
+        if n_missing:
+            print(
+                f"Added {n_missing} proteins with no predictions "
+                f"as empty entries (aspect={aspect})."
+            )
     return pred_dict
 
 

@@ -18,6 +18,7 @@ It provides a pipeline to run these methods using more realistic settings, showi
   - [4. Preparing the evaluation](#4-preparing-the-evaluation)
   - [5. Running Baselines](#5-running-baselines)
   - [6. Evaluation](#6-evaluation)
+- [Datasets](#datasets)
 - [Notes](#notes)
 ---
 
@@ -75,70 +76,141 @@ Note that as the 2024 release of SwissProt contains over 570,000 proteins, the a
 
 ### 4. Preparing the evaluation
 To evaluate the performance of a method, $IC$-weighted scores are used. These scores are computed based on the Information Content ($IC$) of the GO terms, which is derived from the background distribution of GO terms in the dataset.  
-Background files needs to be generated prior to running the baselines.  
-Example for the ATGO dataset:
+Background files must be generated prior to running the baselines.  
+
+Example for the ATGO dataset (uses dedicated train/test split files):
 ```sh
-python background.py --cco ./data/ATGO/ATGO_CCO_train_annotations.tsv --bpo ./data/ATGO/ATGO_BPO_train_annotations.tsv --mfo ./data/ATGO/ATGO_MFO_train_annotations.tsv --output ./data/ATGO/background_ATGO.pkl --test_cco ./data/ATGO/ATGO_MFO_test_annotations.tsv --test_bpo ./data/ATGO/ATGO_BPO_test_annotations.tsv --test_mfo ./data/ATGO/ATGO_CCO_test_annotations.tsv
+python background.py \
+  --cco ./data/ATGO/ATGO_CCO_train_annotations.tsv \
+  --bpo ./data/ATGO/ATGO_BPO_train_annotations.tsv \
+  --mfo ./data/ATGO/ATGO_MFO_train_annotations.tsv \
+  --output ./data/ATGO/background_ATGO.pkl \
+  --test_cco ./data/ATGO/ATGO_CCO_test_annotations.tsv \
+  --test_bpo ./data/ATGO/ATGO_BPO_test_annotations.tsv \
+  --test_mfo ./data/ATGO/ATGO_MFO_test_annotations.tsv
+```
+
+For the **H30** dataset the full SwissProt 2024_01 experimental annotations serve as the training background, with H30 test proteins automatically excluded from the IC calculation:
+```sh
+python background.py \
+  --bpo ./data/swissprot/2024_01/swissprot_2024_01_BPO_exp_annotations.tsv \
+  --cco ./data/swissprot/2024_01/swissprot_2024_01_CCO_exp_annotations.tsv \
+  --mfo ./data/swissprot/2024_01/swissprot_2024_01_MFO_exp_annotations.tsv \
+  --test_bpo ./data/H30/H30_BPO_test_annotations.tsv \
+  --test_cco ./data/H30/H30_CCO_test_annotations.tsv \
+  --test_mfo ./data/H30/H30_MFO_test_annotations.tsv \
+  --output ./data/H30/background_H30.pkl
 ```
 
 ### 5. Running Baselines
 Run the baseline methods (e.g., Naive, DiamondKNN, AlignmentScore) using the prepared data and alignment results. The following command runs the baselines on the ATGO dataset, under the constrained setup:
 ```sh
 python main.py \
---db_version '' \
---dataset ATGO \
---alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
---k_values 1 3 5 10 15 20 \
---aspects BPO CCO MFO \
-
+  --db_versions '' \
+  --dataset ATGO \
+  --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
+  --k_values 1 3 5 10 15 20 \
+  --aspects BPO CCO MFO
 ```
-`--dataset` can be set to either `D1` (BeProf D1 dataset), `H30` (Low homology dataset), `ATGO` or `CAFA3`.  
+`--dataset` can be set to either `D1` (BeProf D1 dataset), `H30` (low-homology dataset), `ATGO` or `CAFA3`.  
 To greatly speed up the process, you can skip the Naive baseline by uncommenting the corresponding line in the `main.py` script.  
 
-`--db_version` can be set to the SwissProt version you want to use, e.g. `2024_01`, or a collection of versions, e.g. `2024_01 2021_01`. If not set, the script will use all available versions.  
+`--db_versions` can be set to one or more SwissProt versions, e.g. `2024_01` or `2024_01 2021_01`. If not set, the script will iterate over all available versions.  
 `--alignment_dir` specifies the path to the Diamond alignment file generated in step 3.  
-`--k_values` specifies the k values to use for the KNN baseline. You can adjust these values based on your needs.  
+`--k_values` specifies the k values to use for the KNN baseline.  
 `--aspects` specifies the GO subontologies to consider (BPO, CCO, MFO). Defaults to all three aspects.  
-Additional arguments can be passed to the script, such as `--experimental_only` to run only using experimental annotations. Leaving this flag unset will include all manually curated GO annotations present in SwissProt.  
+`--experimental_only` restricts training annotations to experimentally validated GO terms. Leaving this flag unset includes all manually curated annotations.  
 
 #### Experimental Setups
 ![alt text](setups.png)
 
-To execute annotation transfer from the train set to the test set (i.e. the usual setup in the litterature, refered to as 'Benchmark'), set `--db_version` to an empty string `''`.  
+To execute annotation transfer from the train set to the test set (i.e. the usual setup in the literature, referred to as 'Benchmark'), set `--db_versions` to an empty string `''`.  
 `--one_vs_all` will run the baselines in a 'One-vs-All' setup, where each test protein can receive annotations from the rest of the proteins in the dataset (excluding themselves), regardless of their train/test split.  
-`--annotations_2024_01` will freeze annotations to the 2024_01 SwissProt release's, using only proteins present in the specified `--db_version`. This is referred to as the 'Up-to-date' setup.
+`--annotations_2024_01` will freeze annotations to the 2024_01 SwissProt release, using only proteins present in the specified `--db_versions`. This is referred to as the 'Up-to-date' setup.  
 Not including any of these flags will run the baselines in the 'SwissProt' setup, where annotations are transferred from the specified SwissProt version(s) to the test proteins.
 
-Example usage on the ATGO dataset, applied to all SwissProt version, using experimental annotations and a one-vs-all setup:
+Example usage on the ATGO dataset, applied to all SwissProt versions, using experimental annotations and a one-vs-all setup:
 
-```python
+```sh
 python main.py \
---dataset ATGO \
---alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
---k_values 1 3 5 10 15 20 \
---aspects BPO CCO MFO \
---experimental_only \
---one_vs_all
+  --dataset ATGO \
+  --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
+  --k_values 1 3 5 10 15 20 \
+  --aspects BPO CCO MFO \
+  --experimental_only \
+  --one_vs_all
+```
+
+#### STRING DB integration
+
+For proteins that have no Diamond alignment hit (particularly relevant in the H30 low-homology dataset), STRING DB interaction scores can supplement or replace alignment-based predictions via `--stringdb`.
+
+Required files (placed under `data/swissprot/2024_01/`):
+- `swissprot_stringdb.tsv` — STRING DB interactions with `combined_score` column (0–1000)
+- `idmapping_swissprot_stringdb.tsv` — mapping from UniProt accession (`From`) to STRING DB ID (`To`)
+
+Two modes are available:
+
+| Mode | Behaviour |
+|------|-----------|
+| `rescue` | Use STRING DB predictions only for proteins that received no alignment hit |
+| `merge <weight>` | Linearly blend alignment and STRING DB predictions for **all** proteins; `weight` ∈ [0, 1] controls the STRING DB contribution |
+
+```sh
+# Rescue unaligned proteins with StringDB
+python main.py \
+  --dataset H30 \
+  --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
+  --k_values 1 3 5 10 15 20 \
+  --experimental_only \
+  --stringdb rescue
+
+# Blend alignment (70%) and StringDB (30%) for all proteins
+python main.py \
+  --dataset H30 \
+  --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
+  --k_values 1 3 5 10 15 20 \
+  --experimental_only \
+  --stringdb merge 0.3
 ```
 
 ### 6. Evaluation
-Evaluating predictions is ran automatically when running the `main.py` script.  
-This can also be done manually by running the `evaluation.py` script.  
+Evaluating predictions runs automatically when executing `main.py`.  
+It can also be triggered manually with `evaluation.py`:
 
-The script evaluates all predictions generated by the baselines and outputs the results in the same directory as the prediction file, automatically selecting the correct backgrounds and ground truth files based on folder's name.  
-Example usage:
 ```sh
 python evaluation.py \
---input_dir './results/ATGO/baselines_ATGO_2024_01_BPO_exp_one_vs_all' \
---aspect 'BPO CCO MFO' \
---k_values 1 3 5 10 15 20
+  --input_dir './results/ATGO/baselines_ATGO_2024_01_BPO_exp_one_vs_all' \
+  --aspect BPO \
+  --k_values 1 3 5 10 15 20
 ```
 
-See the  [BeProf evaluation script github](https://github.com/CSUBioGroup/BeProf/tree/main) for details on the parameters, options and file formats.
+The script selects ground truth and background files automatically based on the directory name.  
+
+**Handling proteins without predictions:** test proteins absent from a prediction file are automatically inserted as empty predictions before evaluation. This ensures they are counted as zero-recall cases (CAFA-style penalisation) rather than being silently ignored, which would artificially inflate scores. The number of such proteins is logged during evaluation.
+
+See the [BeProf evaluation script github](https://github.com/CSUBioGroup/BeProf/tree/main) for details on the evaluation metrics and file formats.
+
+---
+
+## Datasets
+
+| Dataset | Description | Test set definition |
+|---------|-------------|---------------------|
+| `ATGO` | ATGO benchmark | Pre-split train/val/test files |
+| `CAFA3` | CAFA3 benchmark | Pre-split train/val/test files |
+| `D1` | BeProf D1 dataset | Pre-split train/test files |
+| `H30` | Low-homology dataset | Proteins with no pairwise sequence identity > 30 % to any other SwissProt 2024_01 protein; includes proteins absent from the Diamond alignment entirely |
+
+The H30 dataset is generated by `notebooks/generate_H30.ipynb`. The notebook:
+1. Loads the all-vs-all Diamond alignment for SwissProt 2024_01
+2. Collects all proteins from the full SwissProt 2024_01 annotation file (including proteins with zero alignment hits)
+3. Removes any protein that shares > 30 % sequence identity with at least one other protein
+4. Filters the resulting set against the per-ontology experimental annotation files
 
 ---
 
 ### Notes
-Adjust file paths and parameters as needed for your specific setup.
-Plots can be reproduced using the Jupyter notebooks present in the `notebooks` folder.
-Additional performance could likely be further squeezed by tuning the scoring functions and parameters of the baseline according to the following paper: [A large-scale assessment of sequence database search tools for homology-based protein function prediction](https://doi.org/10.1093/bib/bbae349).
+Adjust file paths and parameters as needed for your specific setup.  
+Plots can be reproduced using the Jupyter notebooks in the `notebooks/` folder.  
+Additional performance could likely be further improved by tuning the scoring functions and parameters according to: [A large-scale assessment of sequence database search tools for homology-based protein function prediction](https://doi.org/10.1093/bib/bbae349).

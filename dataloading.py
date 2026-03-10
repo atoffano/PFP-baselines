@@ -62,6 +62,43 @@ def load_pairwise_alignment(dataset, id_mapping=None):
     return pairwise_alignment
 
 
+def load_stringdb(dataset, id_mapping=None):
+    """
+    Load STRING DB interactions for SwissProt 2024_01 and map protein IDs to UniProt accessions.
+    Returns a DataFrame with columns: query_id, subject_id, combined_score (normalised 0-1).
+    """
+    # Build StringDB ID -> UniProt accession reverse mapping
+    id_map_df = pd.read_csv(
+        "./data/swissprot/2024_01/idmapping_swissprot_stringdb.tsv",
+        sep="\t",
+    )
+    stringdb_to_uniprot = dict(zip(id_map_df["To"], id_map_df["From"]))
+
+    # Load interactions
+    stringdb = pd.read_csv(
+        "./data/swissprot/2024_01/swissprot_stringdb.tsv",
+        sep="\t",
+        usecols=["protein1", "protein2", "combined_score"],
+    )
+
+    # Map StringDB IDs to UniProt accessions
+    stringdb["query_id"] = stringdb["protein1"].map(stringdb_to_uniprot)
+    stringdb["subject_id"] = stringdb["protein2"].map(stringdb_to_uniprot)
+    stringdb = stringdb.dropna(subset=["query_id", "subject_id"])
+    stringdb = stringdb[stringdb["query_id"] != stringdb["subject_id"]]
+
+    # Normalise combined_score from 0-1000 to 0-1
+    stringdb["combined_score"] = stringdb["combined_score"] / 1000.0
+
+    # For datasets that use mnemonic EntryIDs (e.g. CAFA3, D1), remap accessions
+    if dataset in USES_ENTRYID and id_mapping is not None:
+        stringdb["query_id"] = stringdb["query_id"].map(id_mapping)
+        stringdb["subject_id"] = stringdb["subject_id"].map(id_mapping)
+        stringdb = stringdb.dropna(subset=["query_id", "subject_id"])
+
+    return stringdb[["query_id", "subject_id", "combined_score"]]
+
+
 def load_data(
     logger,
     dataset,

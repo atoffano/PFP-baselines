@@ -4,7 +4,7 @@ import tqdm
 import argparse
 import logging
 from constants import *
-from dataloading import *
+from dataloading import load_data, load_pairwise_alignment, load_uniprot_mapping, load_stringdb
 import methods
 import evaluation
 
@@ -89,11 +89,32 @@ def main():
 
     parser.add_argument(
         "--stringdb",
-        action="store_true",
-        help="Use STRING DB instead of pairwise alignments.",
+        nargs="+",
+        default=None,
+        metavar=("MODE", "WEIGHT"),
+        help=(
+            "Incorporate STRING DB combined_score into annotation transfer. "
+            "MODE must be 'rescue' (use StringDB only for proteins with no alignment hit) "
+            "or 'merge' (blend alignment and StringDB scores; requires a WEIGHT in [0,1]). "
+            "Examples: --stringdb rescue  |  --stringdb merge 0.5"
+        ),
     )
 
     args = parser.parse_args()
+
+    # Validate --stringdb arguments
+    stringdb_mode = None
+    stringdb_weight = 0.5
+    if args.stringdb is not None:
+        stringdb_mode = args.stringdb[0]
+        if stringdb_mode not in ("rescue", "merge"):
+            raise ValueError(f"--stringdb MODE must be 'rescue' or 'merge', got '{stringdb_mode}'")
+        if stringdb_mode == "merge":
+            if len(args.stringdb) < 2:
+                raise ValueError("--stringdb merge requires a WEIGHT argument, e.g. --stringdb merge 0.5")
+            stringdb_weight = float(args.stringdb[1])
+            if not 0.0 <= stringdb_weight <= 1.0:
+                raise ValueError(f"StringDB weight must be in [0, 1], got {stringdb_weight}")
 
     # Mapping from SwissProt Entry Name (e.g. Q6GZX1) to EntryID (004R_FRG3G)
     id_mapping = load_uniprot_mapping()
@@ -108,6 +129,10 @@ def main():
                 output_dir += "_2024_annotations"
             if args.one_vs_all:
                 output_dir += "_one_vs_all"
+            if stringdb_mode == "rescue":
+                output_dir += "_stringdb_rescue"
+            elif stringdb_mode == "merge":
+                output_dir += f"_stringdb_merge_{stringdb_weight}"
             os.makedirs(f"{output_dir}/predictions", exist_ok=True)
 
             # Setup logging for this aspect
@@ -151,6 +176,21 @@ def main():
                 id_mapping=id_mapping,
             )
 
+            # Load StringDB data once per aspect (independent of db_version)
+            stringdb_data = None
+            if stringdb_mode is not None:
+                logger.info(f"Loading StringDB interactions (mode={stringdb_mode})...")
+                stringdb_data = load_stringdb(args.dataset, id_mapping=id_mapping)
+                stringdb_data = stringdb_data[
+                    stringdb_data["query_id"].isin(test["EntryID"].unique())
+                    & stringdb_data["subject_id"].isin(train["EntryID"].unique())
+                ]
+                if not args.one_vs_all:
+                    stringdb_data = stringdb_data[
+                        ~stringdb_data["subject_id"].isin(test["EntryID"].unique())
+                    ]
+                logger.info(f"Loaded {len(stringdb_data)} StringDB interactions")
+
             pairwise_alignment = pairwise_alignment[
                 pairwise_alignment["query_id"].isin(test["EntryID"].unique())
                 & pairwise_alignment["subject_id"].isin(train["EntryID"].unique())
@@ -176,6 +216,9 @@ def main():
                     test,
                     args.k_values,
                     one_vs_all=args.one_vs_all,
+                    stringdb_data=stringdb_data,
+                    stringdb_mode=stringdb_mode,
+                    stringdb_weight=stringdb_weight,
                 )
             )
 

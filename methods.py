@@ -62,7 +62,9 @@ def _merge_preds(pred_a, pred_b, weight):
     """
     merged = {}
     for term in set(pred_a) | set(pred_b):
-        merged[term] = (1 - weight) * pred_a.get(term, 0.0) + weight * pred_b.get(term, 0.0)
+        merged[term] = (1 - weight) * pred_a.get(term, 0.0) + weight * pred_b.get(
+            term, 0.0
+        )
     return merged
 
 
@@ -135,6 +137,8 @@ def transfer_annotations(
     Ts = train.groupby("EntryID")["term"].apply(list).to_dict()
 
     pairwise_alignment["subject_annotations"] = pairwise_alignment["subject_id"].map(Ts)
+    # Capture all proteins that had ANY Diamond hit before annotation filtering
+    proteins_with_diamond_hit = set(pairwise_alignment["query_id"].unique())
     pairwise_alignment = pairwise_alignment[
         pairwise_alignment["subject_annotations"].map(
             lambda x: len(x) if isinstance(x, list) else 0
@@ -148,32 +152,35 @@ def transfer_annotations(
 
     # Prepare StringDB lookup if provided
     stringdb_grouped = None
+    proteins_with_stringdb_hit: set = set()
     if stringdb_data is not None and stringdb_mode is not None:
         stringdb_data = stringdb_data.copy()
         stringdb_data["subject_annotations"] = stringdb_data["subject_id"].map(Ts)
+        # Capture all proteins that had ANY StringDB hit before annotation filtering
+        proteins_with_stringdb_hit = set(stringdb_data["query_id"].unique())
         stringdb_data = stringdb_data[
             stringdb_data["subject_annotations"].map(
                 lambda x: len(x) if isinstance(x, list) else 0
-            ) > 0
+            )
+            > 0
         ]
         stringdb_grouped = stringdb_data.groupby("query_id")
 
     ascore_pred, idscore_pred = [], []
     blastknn_preds_dict = {k: [] for k in k_values}
 
-    unaligned_proteins = 0
-    unaligned_protein_ids = []  # Store unannotated protein IDs
+    unaligned_protein_ids = (
+        []
+    )  # Proteins with no hit in any source (Diamond or StringDB)
     for protein in tqdm.tqdm(
         test["EntryID"].unique(), desc="Computing Diamond-based predictions"
     ):
-        # ── Alignment-based predictions ──────────────────────────────────────
+        # Alignment-based predictions
         has_alignment = True
         try:
             group = grouped.get_group(protein)
         except KeyError:  # No alignments for this protein
             has_alignment = False
-            unaligned_proteins += 1
-            unaligned_protein_ids.append(protein)
 
         if has_alignment and not one_vs_all:
             try:
@@ -194,41 +201,67 @@ def transfer_annotations(
         else:
             aln_ascore, aln_idscore, aln_knn = {}, {}, {k: {} for k in k_values}
 
-        # ── StringDB predictions ─────────────────────────────────────────────
+        # StringDB predictions
         sdb_ascore, sdb_idscore, sdb_knn = {}, {}, {k: {} for k in k_values}
         if stringdb_grouped is not None:
             # Only compute StringDB if needed (rescue: unaligned only; merge: always)
-            if stringdb_mode == "rescue" and not has_alignment or stringdb_mode == "merge":
+            if (
+                stringdb_mode == "rescue"
+                and not has_alignment
+                or stringdb_mode == "merge"
+            ):
                 try:
                     sdb_group = stringdb_grouped.get_group(protein)
                     sdb_ascore = alignment_score(sdb_group, score_col="combined_score")
                     sdb_idscore = {
                         term: row["combined_score"]
-                        for _, row in [next(iter(sdb_group.sort_values("combined_score", ascending=False).iterrows()))]
+                        for _, row in [
+                            next(
+                                iter(
+                                    sdb_group.sort_values(
+                                        "combined_score", ascending=False
+                                    ).iterrows()
+                                )
+                            )
+                        ]
                         for term in row["subject_annotations"]
                     }
-                    sdb_knn = {k: alignment_knn(sdb_group, k=k, score_col="combined_score") for k in k_values}
+                    sdb_knn = {
+                        k: alignment_knn(sdb_group, k=k, score_col="combined_score")
+                        for k in k_values
+                    }
                 except (KeyError, StopIteration):
                     pass  # No StringDB neighbours for this protein
 
-        # ── Combine predictions ──────────────────────────────────────────────
+        # Combine predictions
         if stringdb_mode == "rescue" and not has_alignment:
             # Use StringDB predictions directly for proteins with no alignment
+            if len(aln_ascore) == 0:
+                logger.warning(
+                    f"Protein {protein} had no alignment predictions; using StringDB predictions directly."
+                )
             final_ascore = sdb_ascore
             final_idscore = sdb_idscore
             final_knn = sdb_knn
         elif stringdb_mode == "merge":
             final_ascore = _merge_preds(aln_ascore, sdb_ascore, stringdb_weight)
             final_idscore = _merge_preds(aln_idscore, sdb_idscore, stringdb_weight)
-            final_knn = {k: _merge_preds(aln_knn[k], sdb_knn[k], stringdb_weight) for k in k_values}
+            final_knn = {
+                k: _merge_preds(aln_knn[k], sdb_knn[k], stringdb_weight)
+                for k in k_values
+            }
         else:
             if not has_alignment:
-                continue  # No predictions and no StringDB fallback
-            final_ascore = aln_ascore
-            final_idscore = aln_idscore
-            final_knn = aln_knn
+                final_ascore, final_idscore, final_knn = (
+                    {},
+                    {},
+                    {k: {} for k in k_values},
+                )
+            else:
+                final_ascore = aln_ascore
+                final_idscore = aln_idscore
+                final_knn = aln_knn
 
-        # ── Emit predictions ─────────────────────────────────────────────────
         if final_idscore:
             idscore_pred.extend(
                 {"target_ID": protein, "term_ID": term_id, "score": sc}
@@ -245,7 +278,16 @@ def transfer_annotations(
             {"target_ID": protein, "term_ID": term_id, "score": sc}
             for term_id, sc in final_ascore.items()
         )
-    logger.info(
-        f"Number of unaligned proteins: {unaligned_proteins} out of {len(test['EntryID'].unique())} ({unaligned_proteins / test['EntryID'].nunique() * 100} %); No annotations have been transfered for alignment-based methods."
+
+        if (
+            not protein in proteins_with_diamond_hit
+            or protein in proteins_with_stringdb_hit
+        ):
+            unaligned_protein_ids.append(protein)
+
+    return (
+        unaligned_protein_ids,
+        ascore_pred,
+        blastknn_preds_dict,
+        idscore_pred,
     )
-    return unaligned_protein_ids, ascore_pred, blastknn_preds_dict, idscore_pred

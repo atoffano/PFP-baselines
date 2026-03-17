@@ -4,7 +4,12 @@ import tqdm
 import argparse
 import logging
 from constants import *
-from dataloading import load_data, load_pairwise_alignment, load_uniprot_mapping, load_stringdb
+from dataloading import (
+    load_data,
+    load_pairwise_alignment,
+    load_uniprot_mapping,
+    load_stringdb,
+)
 import methods
 import evaluation
 
@@ -35,15 +40,10 @@ def setup_logging(output_dir, aspect):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run baseline annotation transfer methods."
+        description="Run baseline annotation transfer methods.",
+        allow_abbrev=False,
     )
     parser.add_argument("--dataset", type=str, required=True, help="Dataset name.")
-    parser.add_argument(
-        "--alignment_dir",
-        type=str,
-        required=True,
-        help="Path to pairwise alignment file.",
-    )
     parser.add_argument(
         "--k_values",
         type=int,
@@ -88,33 +88,31 @@ def main():
     )
 
     parser.add_argument(
-        "--stringdb",
-        nargs="+",
+        "--stringdb_mode",
+        type=str,
         default=None,
-        metavar=("MODE", "WEIGHT"),
+        choices=["rescue", "merge"],
         help=(
             "Incorporate STRING DB combined_score into annotation transfer. "
-            "MODE must be 'rescue' (use StringDB only for proteins with no alignment hit) "
-            "or 'merge' (blend alignment and StringDB scores; requires a WEIGHT in [0,1]). "
-            "Examples: --stringdb rescue  |  --stringdb merge 0.5"
+            "'rescue': use StringDB only for proteins with no alignment hit. "
+            "'merge': blend alignment and StringDB scores (set weight with --stringdb_weight). "
+            "Examples: --stringdb_mode rescue  |  --stringdb_mode merge --stringdb_weight 0.5"
         ),
+    )
+    parser.add_argument(
+        "--stringdb_weight",
+        type=float,
+        default=0.5,
+        help="Weight for StringDB scores when --stringdb_mode merge is used (default: 0.5, must be in [0, 1]).",
     )
 
     args = parser.parse_args()
 
     # Validate --stringdb arguments
-    stringdb_mode = None
-    stringdb_weight = 0.5
-    if args.stringdb is not None:
-        stringdb_mode = args.stringdb[0]
-        if stringdb_mode not in ("rescue", "merge"):
-            raise ValueError(f"--stringdb MODE must be 'rescue' or 'merge', got '{stringdb_mode}'")
-        if stringdb_mode == "merge":
-            if len(args.stringdb) < 2:
-                raise ValueError("--stringdb merge requires a WEIGHT argument, e.g. --stringdb merge 0.5")
-            stringdb_weight = float(args.stringdb[1])
-            if not 0.0 <= stringdb_weight <= 1.0:
-                raise ValueError(f"StringDB weight must be in [0, 1], got {stringdb_weight}")
+    stringdb_mode = args.stringdb_mode
+    stringdb_weight = args.stringdb_weight
+    if stringdb_mode == "merge" and not 0.0 <= stringdb_weight <= 1.0:
+        raise ValueError(f"--stringdb_weight must be in [0, 1], got {stringdb_weight}")
 
     # Mapping from SwissProt Entry Name (e.g. Q6GZX1) to EntryID (004R_FRG3G)
     id_mapping = load_uniprot_mapping()
@@ -208,27 +206,34 @@ def main():
             os.makedirs(f"{output_dir}/predictions/AlignmentScore", exist_ok=True)
             os.makedirs(f"{output_dir}/predictions/BlastKNN", exist_ok=True)
             os.makedirs(f"{output_dir}/predictions/IDScore", exist_ok=True)
-            unaligned_protein_ids, ascore_pred, blastknn_preds_dict, idscore_pred = (
-                methods.transfer_annotations(
-                    logger,
-                    pairwise_alignment,
-                    train,
-                    test,
-                    args.k_values,
-                    one_vs_all=args.one_vs_all,
-                    stringdb_data=stringdb_data,
-                    stringdb_mode=stringdb_mode,
-                    stringdb_weight=stringdb_weight,
-                )
+            (
+                unaligned_protein_ids,
+                ascore_pred,
+                blastknn_preds_dict,
+                idscore_pred,
+            ) = methods.transfer_annotations(
+                logger,
+                pairwise_alignment,
+                train,
+                test,
+                args.k_values,
+                one_vs_all=args.one_vs_all,
+                stringdb_data=stringdb_data,
+                stringdb_mode=stringdb_mode,
+                stringdb_weight=stringdb_weight,
             )
 
-            logger.info(f"Found {len(unaligned_protein_ids)} unannotated test proteins")
+            n_test = test["EntryID"].nunique()
+            logger.info(
+                f"Proteins with no alignment hit: {len(unaligned_protein_ids)} / {n_test} "
+                f"({len(unaligned_protein_ids) / n_test * 100:.2f} %)"
+            )
 
-            unannotated_path = os.path.join(
+            unaligned_path = os.path.join(
                 output_dir,
                 f"unaligned_proteins_{args.dataset}_{db_version}_{aspect}.txt",
             )
-            with open(unannotated_path, "w") as f:
+            with open(unaligned_path, "w") as f:
                 for pid in unaligned_protein_ids:
                     f.write(f"{pid}\n")
 

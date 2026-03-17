@@ -149,12 +149,12 @@ Required files (placed under `data/swissprot/2024_01/`):
 - `swissprot_stringdb.tsv` — STRING DB interactions with `combined_score` column (0–1000)
 - `idmapping_swissprot_stringdb.tsv` — mapping from UniProt accession (`From`) to STRING DB ID (`To`)
 
-Two modes are available:
+Two modes are available, controlled by `--stringdb_mode`:
 
 | Mode | Behaviour |
 |------|-----------|
 | `rescue` | Use STRING DB predictions only for proteins that received no alignment hit |
-| `merge <weight>` | Linearly blend alignment and STRING DB predictions for **all** proteins; `weight` ∈ [0, 1] controls the STRING DB contribution |
+| `merge` | Linearly blend alignment and STRING DB predictions for **all** proteins; `--stringdb_weight` ∈ [0, 1] controls the STRING DB contribution (default: 0.5) |
 
 ```sh
 # Rescue unaligned proteins with StringDB
@@ -163,7 +163,7 @@ python main.py \
   --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
   --k_values 1 3 5 10 15 20 \
   --experimental_only \
-  --stringdb rescue
+  --stringdb_mode rescue
 
 # Blend alignment (70%) and StringDB (30%) for all proteins
 python main.py \
@@ -171,7 +171,7 @@ python main.py \
   --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv \
   --k_values 1 3 5 10 15 20 \
   --experimental_only \
-  --stringdb merge 0.3
+  --stringdb_mode merge --stringdb_weight 0.3
 ```
 
 ### 6. Evaluation

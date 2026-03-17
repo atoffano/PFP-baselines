@@ -90,6 +90,16 @@ def load_stringdb(dataset, id_mapping=None):
     # Normalise combined_score from 0-1000 to 0-1
     stringdb["combined_score"] = stringdb["combined_score"] / 1000.0
 
+    # STRING DB stores each pair only once (A→B, not B→A).
+    # Symmetrize so that query/subject filters work regardless of storage direction.
+    mirrored = stringdb.rename(
+        columns={"query_id": "subject_id", "subject_id": "query_id"}
+    )[["query_id", "subject_id", "combined_score"]]
+    stringdb = pd.concat(
+        [stringdb[["query_id", "subject_id", "combined_score"]], mirrored],
+        ignore_index=True,
+    ).drop_duplicates()
+
     # For datasets that use mnemonic EntryIDs (e.g. CAFA3, D1), remap accessions
     if dataset in USES_ENTRYID and id_mapping is not None:
         stringdb["query_id"] = stringdb["query_id"].map(id_mapping)

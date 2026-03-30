@@ -32,96 +32,45 @@ def setup_logging(output_dir, aspect):
     return logger
 
 
-def evaluate(logger, output_dir, dataset, aspect, k_values):
+def evaluate(
+    logger, output_dir, dataset, aspect, k_values, eval_type="beprof", norm="cafa"
+):
     """
-    Evaluate the predictions using the ground truth (GT) annotations and the BeProf evaluation method.
+    Evaluate predictions with the selected evaluator.
     """
-    background_pkl = f"./data/{dataset}/background_{dataset}.pkl"
     go_obo_file = "./data/go.obo"
+    gt_tsv = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.tsv"
 
-    # Check if GT exists in pkl format. If not, convert GT TSV to pkl using gt_convert
+    if not os.path.exists(gt_tsv):
+        logger.error(f"Ground Truth TSV file {gt_tsv} does not exist.")
+        raise FileNotFoundError(f"Ground Truth TSV file {gt_tsv} does not exist.")
+
+    background_pkl = f"./data/{dataset}/background_{dataset}.pkl"
     gt_pkl = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.pkl"
-    if not os.path.exists(gt_pkl):
-        gt_tsv = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.tsv"
-        if os.path.exists(gt_tsv):
+    all_test_proteins = None
+
+    if eval_type == "beprof":
+        # Check if GT exists in pkl format. If not, convert GT TSV to pkl using gt_convert
+        if not os.path.exists(gt_pkl):
             logger.info(f"Converting Ground Truth TSV {gt_tsv} to pkl format")
             gt_convert(gt_tsv)
-        else:
-            logger.error(f"Ground Truth TSV file {gt_tsv} does not exist.")
-            raise FileNotFoundError(f"Ground Truth TSV file {gt_tsv} does not exist.")
 
-    # Load GT protein IDs so we can fill in empty entries for unaligned proteins
-    with open(gt_pkl, "rb") as f:
-        gt_data = pickle.load(f)
-    all_test_proteins = set(gt_data.keys())
-    logger.info(f"{len(all_test_proteins)} test proteins loaded from ground truth pkl")
+        # Load GT protein IDs so we can fill in empty entries for unaligned proteins
+        with open(gt_pkl, "rb") as f:
+            gt_data = pickle.load(f)
+        all_test_proteins = set(gt_data.keys())
+        logger.info(
+            f"{len(all_test_proteins)} test proteins loaded from ground truth pkl"
+        )
+
+    logger.info(f"Using evaluator: {eval_type}")
 
     # Evaluate NaiveBaseline predictions
     logger.info(f"Evaluating NaiveBaseline predictions")
     pred_file = f"{output_dir}/predictions/NaiveBaseline/predictions.tsv"
     pred_pkl = f"{output_dir}/predictions/NaiveBaseline/predictions.pkl"
     if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
-        with open(pred_pkl, "wb") as f:
-            pickle.dump(pred_dict, f)
-
-        run_beprof_evaluation(
-            logger,
-            pred_pkl,
-            gt_pkl,
-            background_pkl,
-            go_obo_file,
-            f"{output_dir}/evaluation/NaiveBaseline",
-        )
-    else:
-        logger.warning(f"NaiveBaseline predictions file {pred_file} does not exist.")
-
-    # Evaluate IDScore predictions
-    logger.info(f"Evaluating IDScore predictions")
-    # Convert predictions to pkl
-    pred_file = f"{output_dir}/predictions/IDScore/predictions.tsv"
-    pred_pkl = f"{output_dir}/predictions/IDScore/predictions.pkl"
-    if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
-        with open(pred_pkl, "wb") as f:
-            pickle.dump(pred_dict, f)
-
-        run_beprof_evaluation(
-            logger,
-            pred_pkl,
-            gt_pkl,
-            background_pkl,
-            go_obo_file,
-            f"{output_dir}/evaluation/IDScore",
-        )
-    else:
-        logger.warning(f"IDScore predictions file {pred_file} does not exist.")
-
-    # Evaluate AlignmentScore predictions
-    logger.info(f"Evaluating AlignmentScore predictions")
-    pred_file = f"{output_dir}/predictions/AlignmentScore/predictions.tsv"
-    pred_pkl = f"{output_dir}/predictions/AlignmentScore/predictions.pkl"
-    if os.path.exists(pred_file):
-        pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
-        with open(pred_pkl, "wb") as f:
-            pickle.dump(pred_dict, f)
-        run_beprof_evaluation(
-            logger,
-            pred_pkl,
-            gt_pkl,
-            background_pkl,
-            go_obo_file,
-            f"{output_dir}/evaluation/AlignmentScore",
-        )
-    else:
-        logger.warning(f"AlignmentScore predictions file {pred_file} does not exist.")
-
-    # Evaluate BlastKNN predictions for each k value
-    for k in k_values:
-        logger.info(f"Evaluating BlastKNN predictions for k={k}")
-        pred_file = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.tsv"
-        pred_pkl = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.pkl"
-        if os.path.exists(pred_file):
+        if eval_type == "beprof":
             pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
             with open(pred_pkl, "wb") as f:
                 pickle.dump(pred_dict, f)
@@ -132,12 +81,161 @@ def evaluate(logger, output_dir, dataset, aspect, k_values):
                 gt_pkl,
                 background_pkl,
                 go_obo_file,
-                f"{output_dir}/evaluation/BlastKNN_k{k}",
+                f"{output_dir}/evaluation/NaiveBaseline",
             )
+        else:
+            run_cafa_evaluation(
+                logger,
+                pred_file,
+                gt_tsv,
+                go_obo_file,
+                f"{output_dir}/evaluation/NaiveBaseline",
+                norm=norm,
+            )
+    else:
+        logger.warning(f"NaiveBaseline predictions file {pred_file} does not exist.")
+
+    # Evaluate IDScore predictions
+    logger.info(f"Evaluating IDScore predictions")
+    # Convert predictions to pkl
+    pred_file = f"{output_dir}/predictions/IDScore/predictions.tsv"
+    pred_pkl = f"{output_dir}/predictions/IDScore/predictions.pkl"
+    if os.path.exists(pred_file):
+        if eval_type == "beprof":
+            pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
+            with open(pred_pkl, "wb") as f:
+                pickle.dump(pred_dict, f)
+
+            run_beprof_evaluation(
+                logger,
+                pred_pkl,
+                gt_pkl,
+                background_pkl,
+                go_obo_file,
+                f"{output_dir}/evaluation/IDScore",
+            )
+        else:
+            run_cafa_evaluation(
+                logger,
+                pred_file,
+                gt_tsv,
+                go_obo_file,
+                f"{output_dir}/evaluation/IDScore",
+                norm=norm,
+            )
+    else:
+        logger.warning(f"IDScore predictions file {pred_file} does not exist.")
+
+    # Evaluate AlignmentScore predictions
+    logger.info(f"Evaluating AlignmentScore predictions")
+    pred_file = f"{output_dir}/predictions/AlignmentScore/predictions.tsv"
+    pred_pkl = f"{output_dir}/predictions/AlignmentScore/predictions.pkl"
+    if os.path.exists(pred_file):
+        if eval_type == "beprof":
+            pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
+            with open(pred_pkl, "wb") as f:
+                pickle.dump(pred_dict, f)
+            run_beprof_evaluation(
+                logger,
+                pred_pkl,
+                gt_pkl,
+                background_pkl,
+                go_obo_file,
+                f"{output_dir}/evaluation/AlignmentScore",
+            )
+        else:
+            run_cafa_evaluation(
+                logger,
+                pred_file,
+                gt_tsv,
+                go_obo_file,
+                f"{output_dir}/evaluation/AlignmentScore",
+                norm=norm,
+            )
+    else:
+        logger.warning(f"AlignmentScore predictions file {pred_file} does not exist.")
+
+    # Evaluate BlastKNN predictions for each k value
+    for k in k_values:
+        logger.info(f"Evaluating BlastKNN predictions for k={k}")
+        pred_file = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.tsv"
+        pred_pkl = f"{output_dir}/predictions/BlastKNN/k{k}_predictions.pkl"
+        if os.path.exists(pred_file):
+            if eval_type == "beprof":
+                pred_dict = convert_predictions(pred_file, aspect, all_test_proteins)
+                with open(pred_pkl, "wb") as f:
+                    pickle.dump(pred_dict, f)
+
+                run_beprof_evaluation(
+                    logger,
+                    pred_pkl,
+                    gt_pkl,
+                    background_pkl,
+                    go_obo_file,
+                    f"{output_dir}/evaluation/BlastKNN_k{k}",
+                )
+            else:
+                run_cafa_evaluation(
+                    logger,
+                    pred_file,
+                    gt_tsv,
+                    go_obo_file,
+                    f"{output_dir}/evaluation/BlastKNN_k{k}",
+                    norm=norm,
+                )
         else:
             logger.warning(
                 f"BlastKNN predictions file {pred_file} for k={k} does not exist."
             )
+
+
+def run_cafa_evaluation(
+    logger, pred_tsv, gt_tsv, go_obo_file, eval_output_dir, norm="cafa"
+):
+    """
+    Run cafa_eval.py as a subprocess.
+    """
+    os.makedirs(eval_output_dir, exist_ok=True)
+
+    cmd = [
+        sys.executable,
+        "cafa_eval.py",
+        "--predictions",
+        pred_tsv,
+        "--ground_truth",
+        gt_tsv,
+        "--ontology",
+        go_obo_file,
+        "--output",
+        eval_output_dir,
+        "--norm",
+        norm,
+    ]
+
+    logger.info(f"Running CAFA evaluation: {' '.join(cmd)}")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        logger.info("CAFA evaluation completed successfully")
+        logger.info(f"Results saved to: {eval_output_dir}")
+        if result.stdout:
+            logger.info(f"CAFA stdout: {result.stdout}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"CAFA evaluation failed with return code {e.returncode}")
+        if e.stdout:
+            logger.error(f"CAFA stdout:\n{e.stdout}")
+        if e.stderr:
+            logger.error(f"CAFA stderr:\n{e.stderr}")
+        raise
+    except Exception as e:
+        logger.error(f"Error running CAFA evaluation: {str(e)}")
+        raise
 
 
 def run_beprof_evaluation(
@@ -275,7 +373,7 @@ def convert_predictions(pred_file, aspect, all_test_proteins=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate predictions using BeProf.")
+    parser = argparse.ArgumentParser(description="Evaluate predictions.")
     parser.add_argument(
         "--input_dir",
         required=True,
@@ -292,7 +390,27 @@ if __name__ == "__main__":
         default=[1, 3, 5, 10, 15, 20],
         help="List of k values for BlastKNN.",
     )
+    parser.add_argument(
+        "--eval",
+        choices=["beprof", "cafa"],
+        default="beprof",
+        help="Evaluation backend to use.",
+    )
+    parser.add_argument(
+        "--norm",
+        choices=["cafa", "pred", "gt"],
+        default="cafa",
+        help="Normalization mode for CAFA evaluation.",
+    )
     args = parser.parse_args()
 
     logger = setup_logging(args.input_dir, args.aspect)
-    evaluate(logger, args.input_dir, args.dataset, args.aspect, args.k_values)
+    evaluate(
+        logger,
+        args.input_dir,
+        args.dataset,
+        args.aspect,
+        args.k_values,
+        eval_type=args.eval,
+        norm=args.norm,
+    )

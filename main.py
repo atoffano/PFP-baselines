@@ -105,6 +105,18 @@ def main():
         default=0.5,
         help="Weight for StringDB scores when --stringdb_mode merge is used (default: 0.5, must be in [0, 1]).",
     )
+    parser.add_argument(
+        "--eval",
+        choices=["beprof", "cafa"],
+        default="beprof",
+        help="Evaluation backend to use.",
+    )
+    parser.add_argument(
+        "--norm",
+        choices=["cafa", "pred", "gt"],
+        default="cafa",
+        help="Normalization mode used by CAFA evaluator.",
+    )
 
     args = parser.parse_args()
 
@@ -275,9 +287,18 @@ def main():
             logger.info(f"Completed processing for {aspect}")
 
             logger.info("Evaluating predictions...")
+            logger.info(f"Evaluator selected: {args.eval}")
+            if args.eval == "cafa":
+                logger.info(f"CAFA normalization mode: {args.norm}")
 
             evaluation.evaluate(
-                logger, output_dir, args.dataset, aspect, k_values=args.k_values
+                logger,
+                output_dir,
+                args.dataset,
+                aspect,
+                k_values=args.k_values,
+                eval_type=args.eval,
+                norm=args.norm,
             )
             logger.info(f"Evaluation completed for aspect {aspect}")
 

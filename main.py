@@ -108,7 +108,7 @@ def main():
     parser.add_argument(
         "--eval",
         choices=["beprof", "cafa"],
-        default="beprof",
+        default="cafa",
         help="Evaluation backend to use.",
     )
     parser.add_argument(
@@ -307,8 +307,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Usage:
-# python main.py --dataset ATGO \
-# --alignment_dir ./data/swissprot/2024_01/diamond_swissprot_2024_01_alignment.tsv --k_values 1 3 5 10 15 20 \
-# --aspects BPO CCO MFO --experimental_only

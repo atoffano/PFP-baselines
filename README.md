@@ -1,10 +1,15 @@
-# Protein Function Prediction: Capabilities and Limitations of Alignment-based Approaches
+
+This repository contains the code and data processing pipelines for the paper *Protein Function Prediction: Capabilities and Limitations of Alignment-based Approaches*.
+
+
+At their core, alignment-based annotation transfers work by
+homology-matching proteins before transferring annotation from one (single-template) or more (multi-template) paired proteins:
 
 <img src="annotation_transfer.png" alt="annotation_transfer" width="500"/>
 
-This repository contains the code and data processing pipelines for our study reassessing the capabilities of alignment-based annotation transfer in Protein Function Prediction (PFP). 
+While computational prediction of protein function is dominated by deep learning architectures, we find that homology-based methods can surpass state-of-the-art deep learning models when provided with appropriate contextual data. \
 
-Computational prediction of protein function is increasingly dominated by deep learning architectures. However, our findings demonstrate that homology-based methods can surpass state-of-the-art deep learning models when provided with appropriate contextual data. This repository provides the framework we used to explore and mitigate the primary failure point of homology methods (_i.e._ when there is either no protein to transfer from, or no function to transfer).
+This repository provides the framework we used to explore and mitigate the primary failure point of homology methods (_i.e._ when there is either no protein to transfer from, or no function to transfer).
 
 ## Table of Contents
 

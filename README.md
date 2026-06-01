@@ -1,6 +1,6 @@
 # Protein Function Prediction: Capabilities and Limitations of Alignment-based Approaches
 
-![Annotation Transfer](annotation_transfer.svg)
+<img src="annotation_transfer.png" alt="annotation_transfer" width="500"/>
 
 This repository contains the code and data processing pipelines for our study reassessing the capabilities of alignment-based annotation transfer in Protein Function Prediction (PFP). 
 

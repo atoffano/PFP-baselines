@@ -154,3 +154,36 @@ python evaluation.py \
   --aspect BPO \
   --k_values 1 3 5
 ```
+
+### 7. Degressive Evaluation (H30 Dataset)
+
+Evaluate test set performance at degressively lower sequence identity thresholds: from 30% down to 0% in decrements of 5% (H30, H25, H20, H15, H10, H5, H0) using CAFA-eval as the evaluator.
+
+Proteins at threshold $T$ only include those whose maximum sequence identity to any subject is $\le T\%$ (where H0 represents unaligned proteins with 0% sequence identity).
+
+```sh
+# 1. Evaluate an entire baseline results directory (AlignmentScore, IDScore, DiamondKNN):
+python degressive_evaluation.py \
+  --input_dir './results/H30/baselines_H30_2024_01_BPO_exp' \
+  --aspects BPO \
+  --k_values 1 3 \
+  --plot
+
+# 2. Evaluate a single prediction TSV file:
+python degressive_evaluation.py \
+  --predictions './results/H30/baselines_H30_2024_01_BPO_exp/predictions/AlignmentScore/predictions.tsv' \
+  --method_name 'AlignmentScore' \
+  --aspects BPO
+
+# 3. Save ground truth test subsets (H30 to H0) to ./data/H30/degressive/:
+python degressive_evaluation.py \
+  --input_dir './results/H30/baselines_H30_2024_01_BPO_exp' \
+  --save_subsets
+```
+
+Outputs include:
+- Console summary matrix and detailed metrics ($F_{max}$, $S_{min}$, optimal $\tau$, precision, recall, coverage, number of test proteins).
+- Summary TSV & CSV saved to `degressive_evaluation_summary.tsv` / `csv`.
+- High-resolution plot of $F_{max}$ degradation curve across thresholds saved to `degressive_fmax_{aspect}.png`.
+- Per-threshold CAFA evaluation results (e.g. `evaluation_best_f.tsv`).
+

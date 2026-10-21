@@ -39,6 +39,17 @@ def evaluate(
     Evaluate predictions with the selected evaluator.
     """
     go_obo_file = "./data/go.obo"
+    if dataset.startswith("CAFA5") and os.path.exists("./data/CAFA5/go-basic.obo"):
+        go_obo_file = "./data/CAFA5/go-basic.obo"
+
+    known_file = None
+    if dataset == "CAFA5-PK" and os.path.exists("./data/CAFA5/known_t0.tsv"):
+        known_file = "./data/CAFA5/known_t0.tsv"
+
+    ia_file = None
+    if dataset.startswith("CAFA5") and os.path.exists("./data/CAFA5/IA_t0.tsv"):
+        ia_file = "./data/CAFA5/IA_t0.tsv"
+
     gt_tsv = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.tsv"
 
     if not os.path.exists(gt_tsv):
@@ -91,6 +102,8 @@ def evaluate(
                 go_obo_file,
                 f"{output_dir}/evaluation/NaiveBaseline",
                 norm=norm,
+                known_file=known_file,
+                ia_file=ia_file,
             )
     else:
         logger.warning(f"NaiveBaseline predictions file {pred_file} does not exist.")
@@ -122,6 +135,8 @@ def evaluate(
                 go_obo_file,
                 f"{output_dir}/evaluation/IDScore",
                 norm=norm,
+                known_file=known_file,
+                ia_file=ia_file,
             )
     else:
         logger.warning(f"IDScore predictions file {pred_file} does not exist.")
@@ -151,6 +166,8 @@ def evaluate(
                 go_obo_file,
                 f"{output_dir}/evaluation/AlignmentScore",
                 norm=norm,
+                known_file=known_file,
+                ia_file=ia_file,
             )
     else:
         logger.warning(f"AlignmentScore predictions file {pred_file} does not exist.")
@@ -182,6 +199,8 @@ def evaluate(
                     go_obo_file,
                     f"{output_dir}/evaluation/BlastKNN_k{k}",
                     norm=norm,
+                    known_file=known_file,
+                    ia_file=ia_file,
                 )
         else:
             logger.warning(
@@ -190,7 +209,14 @@ def evaluate(
 
 
 def run_cafa_evaluation(
-    logger, pred_tsv, gt_tsv, go_obo_file, eval_output_dir, norm="cafa"
+    logger,
+    pred_tsv,
+    gt_tsv,
+    go_obo_file,
+    eval_output_dir,
+    norm="cafa",
+    known_file=None,
+    ia_file=None,
 ):
     """
     Run cafa_eval.py as a subprocess.
@@ -211,6 +237,10 @@ def run_cafa_evaluation(
         "--norm",
         norm,
     ]
+    if known_file and os.path.exists(known_file):
+        cmd.extend(["--known", known_file])
+    if ia_file and os.path.exists(ia_file):
+        cmd.extend(["--ia", ia_file])
 
     logger.info(f"Running CAFA evaluation: {' '.join(cmd)}")
 

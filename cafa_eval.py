@@ -375,16 +375,20 @@ def cafa_eval(
     th_step=0.01,
     n_cpu=1,
     compute_pp=False,
+    ontologies=None,
+    gt=None,
 ):
 
     # Tau array, used to compute metrics at different score thresholds
     tau_arr = np.arange(th_step, 1, th_step)
 
     # Parse the OBO file and creates a different graphs for each namespace
-    ontologies = obo_parser(obo_file, ("is_a", "part_of"), ia, not no_orphans)
+    if ontologies is None:
+        ontologies = obo_parser(obo_file, ("is_a", "part_of"), ia, not no_orphans)
 
     # Parse ground truth file
-    gt = gt_parser(gt_file, ontologies)
+    if gt is None:
+        gt = gt_parser(gt_file, ontologies)
 
     # Set prediction files looking recursively in the prediction folder
     pred_folder = os.path.normpath(pred_dir) + "/"  # add the tailing "/"
@@ -583,10 +587,15 @@ def parse_args(argv):
         action="store_true",
         help="Compute per-protein metrics at best tau",
     )
+    parser.add_argument(
+        "--known",
+        default=None,
+        help="Optional path to known annotations file to exclude from evaluation (e.g. for CAFA5 Partial Knowledge)",
+    )
     return parser.parse_args(argv)
 
 
-def convert_predictions_to_cafa_format(predictions_file, output_dir):
+def convert_predictions_to_cafa_format(predictions_file, output_dir, known_file=None):
     df = pd.read_csv(predictions_file, sep="\t")
 
     column_mapping = {}
@@ -617,6 +626,25 @@ def convert_predictions_to_cafa_format(predictions_file, output_dir):
     df = df.dropna(subset=["target_ID", "term_ID", "score"])
     df["score"] = pd.to_numeric(df["score"], errors="coerce")
     df = df.dropna(subset=["score"])
+
+    # Exclude known annotations if provided (e.g. CAFA5 Partial Knowledge)
+    if known_file and os.path.exists(known_file):
+        known_df = pd.read_csv(known_file, sep="\t")
+        known_cols = {}
+        for col in known_df.columns:
+            lcol = col.lower()
+            if "entry" in lcol or "target" in lcol:
+                known_cols[col] = "target_ID"
+            elif "term" in lcol:
+                known_cols[col] = "term_ID"
+        if known_cols:
+            known_df = known_df.rename(columns=known_cols)
+        if "target_ID" in known_df.columns and "term_ID" in known_df.columns:
+            known_set = set(zip(known_df["target_ID"].astype(str), known_df["term_ID"].astype(str)))
+            df["is_known"] = [
+                (t, g) in known_set for t, g in zip(df["target_ID"].astype(str), df["term_ID"].astype(str))
+            ]
+            df = df[~df["is_known"]].drop(columns=["is_known"])
 
     pred_dir = os.path.join(output_dir, "predictions")
     os.makedirs(pred_dir, exist_ok=True)
@@ -671,7 +699,9 @@ def main(argv=None):
     os.makedirs(args.output, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="cafa_eval_") as cafa_input_dir:
-        pred_dir = convert_predictions_to_cafa_format(args.predictions, cafa_input_dir)
+        pred_dir = convert_predictions_to_cafa_format(
+            args.predictions, cafa_input_dir, known_file=args.known
+        )
         gt_converted = convert_ground_truth_to_cafa_format(
             args.ground_truth, os.path.join(cafa_input_dir, "ground_truth.tsv")
         )

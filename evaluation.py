@@ -43,18 +43,40 @@ def evaluate(
         go_obo_file = "./data/CAFA5/go-basic.obo"
 
     known_file = None
-    if dataset == "CAFA5-PK" and os.path.exists("./data/CAFA5/known_t0.tsv"):
-        known_file = "./data/CAFA5/known_t0.tsv"
+    if dataset == "CAFA5-PK":
+        if os.path.exists("./data/CAFA5/known_t0.tsv"):
+            known_file = "./data/CAFA5/known_t0.tsv"
+        elif os.path.exists("./data/CAFA5/full_evaluation/known_t0.tsv"):
+            known_file = "./data/CAFA5/full_evaluation/known_t0.tsv"
 
     ia_file = None
-    if dataset.startswith("CAFA5") and os.path.exists("./data/CAFA5/IA_t0.tsv"):
-        ia_file = "./data/CAFA5/IA_t0.tsv"
+    if dataset.startswith("CAFA5"):
+        if os.path.exists("./data/CAFA5/IA_t0.tsv"):
+            ia_file = "./data/CAFA5/IA_t0.tsv"
+        elif os.path.exists("./data/CAFA5/full_evaluation/IA_t0.tsv"):
+            ia_file = "./data/CAFA5/full_evaluation/IA_t0.tsv"
+
+    toi_file = None
+    if dataset.startswith("CAFA5"):
+        if os.path.exists("./data/CAFA5/full_evaluation/toi_2025_03.tsv"):
+            toi_file = "./data/CAFA5/full_evaluation/toi_2025_03.tsv"
+        elif os.path.exists("./data/CAFA5/toi_2025_03.tsv"):
+            toi_file = "./data/CAFA5/toi_2025_03.tsv"
 
     gt_tsv = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.tsv"
 
     if not os.path.exists(gt_tsv):
         logger.error(f"Ground Truth TSV file {gt_tsv} does not exist.")
         raise FileNotFoundError(f"Ground Truth TSV file {gt_tsv} does not exist.")
+
+    cafa5_gt_map = {
+        "CAFA5-NK": "./data/CAFA5/full_evaluation/eval_terms_no_knowledge_2025_03.tsv",
+        "CAFA5-LK": "./data/CAFA5/full_evaluation/eval_terms_limited_2025_03.tsv",
+        "CAFA5-PK": "./data/CAFA5/full_evaluation/eval_terms_partial_2025_03.tsv",
+    }
+    cafa_gt_tsv = gt_tsv
+    if dataset.startswith("CAFA5") and dataset in cafa5_gt_map and os.path.exists(cafa5_gt_map[dataset]):
+        cafa_gt_tsv = cafa5_gt_map[dataset]
 
     background_pkl = f"./data/{dataset}/background_{dataset}.pkl"
     gt_pkl = f"./data/{dataset}/{dataset}_{aspect}_test_annotations.pkl"
@@ -98,12 +120,14 @@ def evaluate(
             run_cafa_evaluation(
                 logger,
                 pred_file,
-                gt_tsv,
+                cafa_gt_tsv,
                 go_obo_file,
                 f"{output_dir}/evaluation/NaiveBaseline",
                 norm=norm,
                 known_file=known_file,
                 ia_file=ia_file,
+                toi_file=toi_file,
+                dataset=dataset,
             )
     else:
         logger.warning(f"NaiveBaseline predictions file {pred_file} does not exist.")
@@ -131,12 +155,14 @@ def evaluate(
             run_cafa_evaluation(
                 logger,
                 pred_file,
-                gt_tsv,
+                cafa_gt_tsv,
                 go_obo_file,
                 f"{output_dir}/evaluation/IDScore",
                 norm=norm,
                 known_file=known_file,
                 ia_file=ia_file,
+                toi_file=toi_file,
+                dataset=dataset,
             )
     else:
         logger.warning(f"IDScore predictions file {pred_file} does not exist.")
@@ -162,12 +188,14 @@ def evaluate(
             run_cafa_evaluation(
                 logger,
                 pred_file,
-                gt_tsv,
+                cafa_gt_tsv,
                 go_obo_file,
                 f"{output_dir}/evaluation/AlignmentScore",
                 norm=norm,
                 known_file=known_file,
                 ia_file=ia_file,
+                toi_file=toi_file,
+                dataset=dataset,
             )
     else:
         logger.warning(f"AlignmentScore predictions file {pred_file} does not exist.")
@@ -195,12 +223,14 @@ def evaluate(
                 run_cafa_evaluation(
                     logger,
                     pred_file,
-                    gt_tsv,
+                    cafa_gt_tsv,
                     go_obo_file,
                     f"{output_dir}/evaluation/BlastKNN_k{k}",
                     norm=norm,
                     known_file=known_file,
                     ia_file=ia_file,
+                    toi_file=toi_file,
+                    dataset=dataset,
                 )
         else:
             logger.warning(
@@ -217,55 +247,127 @@ def run_cafa_evaluation(
     norm="cafa",
     known_file=None,
     ia_file=None,
+    toi_file=None,
+    dataset=None,
 ):
     """
-    Run cafa_eval.py as a subprocess.
+    Run CAFA evaluation as a subprocess.
+    If evaluating CAFA5 (dataset starts with 'CAFA5'), use claradepaolis/CAFA-evaluator-PK.
+    Otherwise, fall back to in-tree cafa_eval.py.
     """
     os.makedirs(eval_output_dir, exist_ok=True)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cafa_pk_dir = os.path.join(base_dir, "CAFA-evaluator-PK")
+    is_cafa5 = dataset is not None and dataset.startswith("CAFA5")
 
-    cmd = [
-        sys.executable,
-        "cafa_eval.py",
-        "--predictions",
-        pred_tsv,
-        "--ground_truth",
-        gt_tsv,
-        "--ontology",
-        go_obo_file,
-        "--output",
-        eval_output_dir,
-        "--norm",
-        norm,
-    ]
-    if known_file and os.path.exists(known_file):
-        cmd.extend(["--known", known_file])
-    if ia_file and os.path.exists(ia_file):
-        cmd.extend(["--ia", ia_file])
+    if is_cafa5 and os.path.exists(os.path.join(cafa_pk_dir, "src", "cafaeval", "__main__.py")):
+        import tempfile
+        import shutil
 
-    logger.info(f"Running CAFA evaluation: {' '.join(cmd)}")
+        # CAFA-evaluator-PK expects a folder containing the prediction file(s)
+        # We stage the single prediction file in a clean temp directory
+        with tempfile.TemporaryDirectory(prefix="cafa5_eval_") as tmp_pred_dir:
+            tmp_pred_file = os.path.join(tmp_pred_dir, "predictions.tsv")
+            try:
+                os.symlink(os.path.abspath(pred_tsv), tmp_pred_file)
+            except OSError:
+                shutil.copyfile(pred_tsv, tmp_pred_file)
 
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-        )
-        logger.info("CAFA evaluation completed successfully")
-        logger.info(f"Results saved to: {eval_output_dir}")
-        if result.stdout:
-            logger.info(f"CAFA stdout: {result.stdout}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"CAFA evaluation failed with return code {e.returncode}")
-        if e.stdout:
-            logger.error(f"CAFA stdout:\n{e.stdout}")
-        if e.stderr:
-            logger.error(f"CAFA stderr:\n{e.stderr}")
-        raise
-    except Exception as e:
-        logger.error(f"Error running CAFA evaluation: {str(e)}")
-        raise
+            env = os.environ.copy()
+            cafa_pk_src = os.path.join(cafa_pk_dir, "src")
+            env["PYTHONPATH"] = f"{cafa_pk_src}:{env.get('PYTHONPATH', '')}"
+
+            eval_threads = "2" if dataset == "CAFA5-PK" else "4"
+            cmd = [
+                sys.executable,
+                "-m",
+                "cafaeval",
+                go_obo_file,
+                tmp_pred_dir,
+                gt_tsv,
+                "-out_dir",
+                eval_output_dir,
+                "-norm",
+                norm,
+                "-threads",
+                eval_threads,
+            ]
+            if ia_file and os.path.exists(ia_file):
+                cmd.extend(["-ia", ia_file])
+            if toi_file and os.path.exists(toi_file):
+                cmd.extend(["-toi", toi_file])
+            if known_file and os.path.exists(known_file):
+                cmd.extend(["-known", known_file])
+
+            logger.info(f"Running CAFA-evaluator-PK evaluation: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    cwd=base_dir,
+                )
+                logger.info("CAFA-evaluator-PK evaluation completed successfully")
+                logger.info(f"Results saved to: {eval_output_dir}")
+                if result.stdout:
+                    logger.info(f"CAFA-evaluator-PK stdout: {result.stdout}")
+            except subprocess.CalledProcessError as e:
+                logger.error(
+                    f"CAFA-evaluator-PK evaluation failed with return code {e.returncode}"
+                )
+                if e.stdout:
+                    logger.error(f"CAFA-evaluator-PK stdout:\n{e.stdout}")
+                if e.stderr:
+                    logger.error(f"CAFA-evaluator-PK stderr:\n{e.stderr}")
+                raise
+            except Exception as e:
+                logger.error(f"Error running CAFA-evaluator-PK evaluation: {str(e)}")
+                raise
+    else:
+        cmd = [
+            sys.executable,
+            "cafa_eval.py",
+            "--predictions",
+            pred_tsv,
+            "--ground_truth",
+            gt_tsv,
+            "--ontology",
+            go_obo_file,
+            "--output",
+            eval_output_dir,
+            "--norm",
+            norm,
+        ]
+        if known_file and os.path.exists(known_file):
+            cmd.extend(["--known", known_file])
+        if ia_file and os.path.exists(ia_file):
+            cmd.extend(["--ia", ia_file])
+
+        logger.info(f"Running CAFA evaluation: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=base_dir,
+            )
+            logger.info("CAFA evaluation completed successfully")
+            logger.info(f"Results saved to: {eval_output_dir}")
+            if result.stdout:
+                logger.info(f"CAFA stdout: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"CAFA evaluation failed with return code {e.returncode}")
+            if e.stdout:
+                logger.error(f"CAFA stdout:\n{e.stdout}")
+            if e.stderr:
+                logger.error(f"CAFA stderr:\n{e.stderr}")
+            raise
+        except Exception as e:
+            logger.error(f"Error running CAFA evaluation: {str(e)}")
+            raise
 
 
 def run_beprof_evaluation(

@@ -68,23 +68,43 @@ def _merge_preds(pred_a, pred_b, weight):
     return merged
 
 
-def best_percent_identity(E):
+def idscore_baseline(E, score_col="perc_identity"):
     """
-    Get the best percent identity from the alignments. Transfer its annotations to current protein.
+    Transfer annotations from alignments using sequence identity.
+    For each GO term, finds the best matching sequence (highest sequence identity)
+    annotated with that term, and attributes this sequence identity as the score.
 
     Parameters:
     E (dataframe): Dataframe of similar sequences according to Diamond blast results,
-                  with columns 'subject_id', 'perc_identity'.
+                  with columns 'subject_annotations' and score_col.
+    score_col (str): Column to use as sequence identity (default: 'perc_identity').
     """
-    if E.empty:
+    if E.empty or score_col not in E.columns:
         return {}
 
-    # Get the row with the maximum percent identity
-    best_row = E.loc[E["perc_identity"].idxmax()]
-    annotations = best_row["subject_annotations"]
-    go_terms = {term: 1.0 for term in annotations}  # Assign a score of 1.0 to each term
+    go_terms = {}
+    score_idx = E.columns.get_loc(score_col)
+    annot_idx = E.columns.get_loc("subject_annotations")
+
+    for row in E.itertuples(index=False):
+        annotations = row[annot_idx]
+        if not isinstance(annotations, (list, set, tuple)):
+            continue
+        try:
+            s = float(row[score_idx])
+        except (ValueError, TypeError):
+            continue
+        # Normalise percentage (0-100) to sequence identity score (0-1)
+        score = min(1.0, max(0.0, s / 100.0 if s > 1.0 else s))
+        for term in annotations:
+            if term not in go_terms or score > go_terms[term]:
+                go_terms[term] = score
 
     return go_terms
+
+
+# Backward-compatibility alias
+best_percent_identity = idscore_baseline
 
 
 def naive_baseline(input_dir, train, val):
@@ -196,7 +216,7 @@ def transfer_annotations(
 
         if has_alignment:
             aln_ascore = alignment_score(group)
-            aln_idscore = best_percent_identity(group)
+            aln_idscore = idscore_baseline(group)
             aln_knn = {k: alignment_knn(group, k=k) for k in k_values}
         else:
             aln_ascore, aln_idscore, aln_knn = {}, {}, {k: {} for k in k_values}
@@ -213,19 +233,9 @@ def transfer_annotations(
                 try:
                     sdb_group = stringdb_grouped.get_group(protein)
                     sdb_ascore = alignment_score(sdb_group, score_col="combined_score")
-                    sdb_idscore = {
-                        term: row["combined_score"]
-                        for _, row in [
-                            next(
-                                iter(
-                                    sdb_group.sort_values(
-                                        "combined_score", ascending=False
-                                    ).iterrows()
-                                )
-                            )
-                        ]
-                        for term in row["subject_annotations"]
-                    }
+                    sdb_idscore = idscore_baseline(
+                        sdb_group, score_col="combined_score"
+                    )
                     sdb_knn = {
                         k: alignment_knn(sdb_group, k=k, score_col="combined_score")
                         for k in k_values

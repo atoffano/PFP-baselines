@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 import os
 import tqdm
@@ -123,6 +124,8 @@ def main():
     # Validate --stringdb arguments
     stringdb_mode = args.stringdb_mode
     stringdb_weight = args.stringdb_weight
+    if stringdb_mode is None and any(arg.startswith("--stringdb_weight") for arg in sys.argv):
+        stringdb_mode = "merge"
     if stringdb_mode == "merge" and not 0.0 <= stringdb_weight <= 1.0:
         raise ValueError(f"--stringdb_weight must be in [0, 1], got {stringdb_weight}")
 
